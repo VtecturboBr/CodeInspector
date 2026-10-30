@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analisador Sintático de JavaScript</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Analisador Sintático</h1>
+      <p>Este projeto verificará parênteses, colchetes e chaves em códigos JavaScript.</p>
+    </header>
+
+    <label for="codigo">Código JavaScript</label>
+    <textarea id="codigo" name="codigo" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Escreva ou cole seu código aqui"></textarea>
+
+    <button id="botao-analisar" type="button">Analisar código</button>
+
+    <section class="painel-resultado" aria-labelledby="titulo-resultado">
+      <h2 id="titulo-resultado">Resultado da análise</h2>
+      <p id="resultado" role="status" aria-live="polite">Aguardando análise</p>
+    </section>
+  </main>
+</body>
+</html>
