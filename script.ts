@@ -71,6 +71,84 @@ function formatarPosicao(posicao: Posicao): string {
   return `linha ${posicao.linha}, coluna ${posicao.coluna}`;
 }
 
+function posicaoNoIndice(codigo: string, indiceDesejado: number): Posicao {
+  let linha = 1;
+  let coluna = 0;
+
+  for (let indice = 0; indice < indiceDesejado; indice++) {
+    const caractere = codigo[indice];
+
+    if (caractere === "\r" && codigo[indice + 1] === "\n") {
+      indice++;
+      linha++;
+      coluna = 0;
+    } else if ("\r\n\u2028\u2029".includes(caractere)) {
+      linha++;
+      coluna = 0;
+    } else {
+      coluna++;
+    }
+  }
+
+  return { linha, coluna: coluna + 1 };
+}
+
+function encontrarAspasDuplasAbertas(codigo: string): Erro[] {
+  let estado: "normal" | "comentario-linha" | "comentario-bloco" | "aspas-simples" | "aspas-duplas" | "crase" = "normal";
+  let indiceAbertura = -1;
+
+  for (let indice = 0; indice < codigo.length; indice++) {
+    const caractere = codigo[indice];
+    const proximo = codigo[indice + 1];
+
+    if (estado === "comentario-linha") {
+      if ("\r\n\u2028\u2029".includes(caractere)) estado = "normal";
+      continue;
+    }
+
+    if (estado === "comentario-bloco") {
+      if (caractere === "*" && proximo === "/") {
+        estado = "normal";
+        indice++;
+      }
+      continue;
+    }
+
+    if (estado === "aspas-simples" || estado === "aspas-duplas" || estado === "crase") {
+      if (caractere === "\\") {
+        indice++;
+      } else if ((estado === "aspas-simples" && caractere === "'")
+        || (estado === "aspas-duplas" && caractere === '"')
+        || (estado === "crase" && caractere === "`")) {
+        estado = "normal";
+      }
+      continue;
+    }
+
+    if (caractere === "/" && proximo === "/") {
+      estado = "comentario-linha";
+      indice++;
+    } else if (caractere === "/" && proximo === "*") {
+      estado = "comentario-bloco";
+      indice++;
+    } else if (caractere === "'") {
+      estado = "aspas-simples";
+    } else if (caractere === '"') {
+      estado = "aspas-duplas";
+      indiceAbertura = indice;
+    } else if (caractere === "`") {
+      estado = "crase";
+    }
+  }
+
+  if (estado !== "aspas-duplas") return [];
+
+  return [{
+    mensagem: `Aspas duplas abertas em ${formatarPosicao(posicaoNoIndice(codigo, indiceAbertura))}. Feche as aspas duplas (\").`,
+    indice: indiceAbertura
+  }];
+}
+
 
 // 5. Análise com pilha: independente dos elementos da página
 function analisarCodigo(codigo: string): Analise {
@@ -132,7 +210,8 @@ function analisarCodigo(codigo: string): Analise {
   }
 
   return {
-    erros: erros.sort((primeiro, segundo) => primeiro.indice - segundo.indice)
+    erros: [...erros, ...encontrarAspasDuplasAbertas(codigo)]
+      .sort((primeiro, segundo) => primeiro.indice - segundo.indice)
   };
 }
 
@@ -239,6 +318,6 @@ editorCodigo.classList.add("com-destaque");
 
 codigoAnalise.textContent = `const pares = ${JSON.stringify(pares, null, 2)};\n\n`
   + `const padraoTextos = ${padraoTextos};\n\n`
-  + [ignorarStringsEComentarios, formatarPosicao, analisarCodigo]
+  + [ignorarStringsEComentarios, formatarPosicao, posicaoNoIndice, encontrarAspasDuplasAbertas, analisarCodigo]
     .map(funcao => funcao.toString())
     .join("\n\n");
