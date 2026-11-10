@@ -265,4 +265,78 @@ for (const vazio of ["", " \n\t "]) {
   verificar.equal(elementos["painel-resultado"].className, "resultado neutro");
 }
 
-console.log("Todos os testes passaram: pilha, posições, vários erros, destaque e ações da página.");
+// ============================================================================
+// NOVOS TESTES DE REGRESSÃO — AUDITORIA DE 10 BUGS
+// ============================================================================
+
+// BUG 1 & BUG 3: Expressões Regulares e aspas internas
+verificar.equal(analisar("const regex = /[(]/;").erros.length, 0, "BUG 1.1: regex com [()]");
+verificar.equal(analisar("const regex = /[{}]/;").erros.length, 0, "BUG 1.2: regex com [{}]");
+verificar.equal(analisar("const regex = /\\(/;").erros.length, 0, "BUG 1.3: regex com \\(");
+verificar.equal(analisar("const regex = /[\"']/;").erros.length, 0, "BUG 3: aspas dentro de regex");
+verificar.equal(analisar("const div = (a + b) / 2 / c;").erros.length, 0, "Divisão matemática não é confundida com RegExp");
+
+// BUG 2: Template Literals com expressões ${...}
+const b2_1 = analisar("const resultado = `${(1]}`;");
+verificar.equal(b2_1.erros.length, 1, "BUG 2.1: erro dentro de interpolação");
+verificar.match(b2_1.erros[0].mensagem, /“]” incompatível/);
+
+const b2_2 = analisar("const mensagem = `${funcao([1, 2)}`;");
+verificar.ok(b2_2.erros.length >= 1, "BUG 2.2: delimitadores incompatíveis em interpolação");
+
+const b2_3 = analisar("`antes ${ `${ (1] }` } depois`");
+verificar.equal(b2_3.erros.length, 1, "BUG 2.3: template aninhado com erro");
+
+// BUG 4: Comentário de bloco incompleto
+const b4 = analisar("const numero = 10;\n\n/* Comentário não terminado");
+verificar.equal(b4.erros.length, 1, "BUG 4: comentário de bloco incompleto");
+verificar.match(b4.erros[0].mensagem, /Comentário de bloco iniciado na linha 3, coluna 1, mas não finalizado\./);
+
+// BUG 5: Parâmetros com valores padrão complexos
+const codB5 = "function calcular(a = Math.max(1, 2)) { return a; }";
+const defB5 = contexto.encontrarNomesDefinidos(codB5);
+verificar.ok(defB5.nomes.has("a"), "BUG 5: parâmetro a reconhecido com expressão default balanceada");
+
+// BUG 6: Propriedades abreviadas de objetos
+const codB6 = 'const nome = "Alef"; const usuario = { nome }; usuario.nome;';
+const defB6 = contexto.encontrarNomesDefinidos(codB6);
+verificar.ok(defB6.propriedades.has("nome"), "BUG 6: propriedade nome reconhecida");
+verificar.ok(contexto.nomeFoiDefinido("nome", codB6.lastIndexOf("nome"), defB6), "BUG 6: usuario.nome destacado como propriedade");
+
+// BUG 7: Desestruturação aninhada
+const codB7 = "const { info: { valor } } = objeto; valor;";
+const defB7 = contexto.encontrarNomesDefinidos(codB7);
+verificar.ok(defB7.nomes.has("valor"), "BUG 7: variável aninhada valor reconhecida");
+verificar.ok(defB7.propriedades.has("info"), "BUG 7: propriedade info reconhecida");
+
+// BUG 8: Campos de classes sem ponto e vírgula
+const codB8 = `class Pessoa {
+    nome = "Alef"
+    idade = 20
+
+    apresentar() {
+        return this.nome;
+    }
+}`;
+const defB8 = contexto.encontrarNomesDefinidos(codB8);
+verificar.ok(defB8.propriedades.has("nome"), "BUG 8: campo nome reconhecido sem ponto e vírgula");
+verificar.ok(defB8.propriedades.has("idade"), "BUG 8: campo idade reconhecido sem ponto e vírgula");
+
+// BUG 9: Identificadores com o mesmo nome em escopos diferentes
+const codB9 = `function teste() {
+    const segredo = 123;
+}
+console.log(segredo);`;
+const defB9 = contexto.encontrarNomesDefinidos(codB9);
+const idxSegredoFora = codB9.indexOf("console.log(segredo)") + 12;
+verificar.equal(contexto.nomeFoiDefinido("segredo", idxSegredoFora, defB9), false, "BUG 9: segredo fora do escopo da função não é destacado");
+
+// BUG 10: Performance com milhares de erros na mesma linha
+const codB10 = "}".repeat(2000);
+const inicioT = Date.now();
+const resB10 = analisar(codB10);
+const fimT = Date.now();
+verificar.equal(resB10.erros.length, 2000, "BUG 10: contagem exata de 2000 erros preservada");
+verificar.ok(fimT - inicioT < 250, `BUG 10: processamento ultra-rápido (${fimT - inicioT}ms)`);
+
+console.log("Todos os testes passaram com sucesso: testes originais + bateria de 10 bugs!");

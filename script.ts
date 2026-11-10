@@ -12,6 +12,8 @@ interface DelimitadorAberto extends Posicao {
 interface Erro extends Posicao {
   mensagem: string;
   indice: number;
+  tipo?: string;
+  aspas?: string;
 }
 
 interface Analise {
@@ -24,15 +26,42 @@ interface IndicadorErro {
   espacosAteErro: string;
 }
 
-interface StringIncompleta {
-  indice: number;
-  aspas: string;
+interface DeclaracaoEscopo {
+  nome: string;
+  inicio: number;
+  fim: number;
 }
 
 interface NomesDefinidos {
   nomes: Set<string>;
   propriedades: Set<string>;
+  declaracoesComEscopo?: DeclaracaoEscopo[];
   codigoLimpo: string;
+}
+
+interface ContextoTemplate {
+  profundidadeChaves: number;
+  linhaInicio: number;
+  colunaInicio: number;
+  inicio: number;
+}
+
+interface TokenLexico {
+  tipo: "comentario" | "string" | "template";
+  inicio: number;
+  fim: number;
+  texto: string;
+}
+
+interface ScanResultado {
+  codigoLimpo: string;
+  erros: Erro[];
+  tokens: TokenLexico[];
+}
+
+interface DadosLinhaCache {
+  textoLinha: string;
+  inicioLinha: number;
 }
 
 // 2. Elementos da página
@@ -59,13 +88,8 @@ const codigoAnalise = obterElemento<HTMLElement>("codigo-analise");
 
 // 3. Pares de delimitadores, padrões compilados e regras de destaque
 const pares: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
-const padraoTextos = /\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\r\n\u2028\u2029]*|"(?:\\(?:\r\n|[\s\S])|[^"\\\r\n\u2028\u2029])*"?|'(?:\\(?:\r\n|[\s\S])|[^'\\\r\n\u2028\u2029])*'?|`(?:\\[\s\S]|[^`\\])*`?/g;
 const padraoNumeros = /(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+)n?|\d[\d_]*n|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?[\d_]+)?/;
 const padraoPalavras = /[\p{ID_Continue}$\u200c\u200d]+/u;
-// Textos vêm primeiro para não destacar números ou palavras dentro deles.
-const padraoDestaques = new RegExp(
-  [padraoTextos.source, padraoNumeros.source, padraoPalavras.source].join("|"), "gu"
-);
 
 const palavrasReservadas = new Set([
   "async", "await", "break", "case", "catch", "class", "const", "continue",
@@ -76,46 +100,438 @@ const palavrasReservadas = new Set([
   "throw", "try", "typeof", "var", "void", "while", "with", "yield"
 ]);
 
-// Expressões regulares compiladas uma única vez no escopo global para máxima performance
-const padraoNomeIdentificador = "[\\p{ID_Start}$_][\\p{ID_Continue}$\\u200c\\u200d]*";
-const padraoInicioNome = new RegExp(`^(?:\\.\\.\\.)?(${padraoNomeIdentificador})`, "u");
-const padraoDeclaracaoVariaveis = /\b(?:const|let|var)\s+([^;\r\n]+)/g;
-const padraoDeclaracaoFuncaoClasse = new RegExp(`\\b(?:function\\b\\s*\\*?|class\\b)\\s*(${padraoNomeIdentificador})`, "gu");
-const padraoParametrosFuncao = new RegExp(
-  `\\bfunction\\b\\s*\\*?\\s*(?:${padraoNomeIdentificador})?\\s*\\(([^()]*)\\)`
-    + `|\\(([^()]*)\\)\\s*=>|(${padraoNomeIdentificador})\\s*=>`, "gu"
-);
-const padraoMetodos = new RegExp(`(${padraoNomeIdentificador})\\s*\\(([^()]*)\\)\\s*\\{`, "gu");
-const padraoCampos = new RegExp(`(?:[{,]\\s*(${padraoNomeIdentificador})\\s*:)|(?:[{;]\\s*(${padraoNomeIdentificador})\\s*=)`, "gu");
+// 4. Scanner Léxico: Reconhece comentários, strings, RegExp e interpolações de template
+function ehInicioRegExp(codigo: string, indice: number): boolean {
+  let j = indice - 1;
+  while (j >= 0 && /\s/.test(codigo[j])) j--;
+  if (j < 0) return true;
+  const char = codigo[j];
+  if ((char === "+" && codigo[j - 1] === "+") || (char === "-" && codigo[j - 1] === "-")) return false;
+  if ("(,;:[{=!?&|+-*%/^~<>}".includes(char)) return true;
+  if (/[\w$]/.test(char)) {
+    let k = j;
+    while (k >= 0 && /[\w$]/.test(codigo[k])) k--;
+    const palavra = codigo.slice(k + 1, j + 1);
+    const palavrasExpressao = new Set([
+      "return", "case", "throw", "yield", "await", "delete",
+      "void", "typeof", "instanceof", "in", "of", "else", "default", "do"
+    ]);
+    if (palavrasExpressao.has(palavra)) return true;
+  }
+  return false;
+}
 
+function escanearCodigo(codigo: string): ScanResultado {
+  let codigoLimpo = "";
+  const erros: Erro[] = [];
+  const tokens: TokenLexico[] = [];
+  let linha = 1;
+  let coluna = 0;
+  let indice = 0;
+  const pilhaTemplates: ContextoTemplate[] = [];
 
-// 4. Preparação do texto, posições e indicador visual
-// shortcut: regex e expressões em crases exigem leitura léxica mais completa; ampliar se forem usadas.
+  while (indice < codigo.length) {
+    const caractere = codigo[indice];
+    const proximo = codigo[indice + 1];
+
+    if ("\r\n\u2028\u2029".includes(caractere)) {
+      codigoLimpo += caractere;
+      coluna = 0;
+      linha++;
+      if (caractere === "\r" && proximo === "\n") {
+        codigoLimpo += "\n";
+        indice += 2;
+        continue;
+      }
+      indice++;
+      continue;
+    }
+
+    coluna++;
+
+    // Linha de comentário //
+    if (caractere === "/" && proximo === "/") {
+      const inicio = indice;
+      while (indice < codigo.length && !"\r\n\u2028\u2029".includes(codigo[indice])) {
+        indice++;
+      }
+      const len = indice - inicio;
+      codigoLimpo += " ".repeat(len);
+      tokens.push({ tipo: "comentario", inicio, fim: indice, texto: codigo.slice(inicio, indice) });
+      coluna += len - 1;
+      continue;
+    }
+
+    // Comentário de bloco /* ... */
+    if (caractere === "/" && proximo === "*") {
+      const linhaInicio = linha;
+      const colunaInicio = coluna;
+      const inicio = indice;
+      indice += 2;
+      coluna++;
+      let fechado = false;
+      let espacos = "  ";
+
+      while (indice < codigo.length) {
+        const c = codigo[indice];
+        if (c === "*" && codigo[indice + 1] === "/") {
+          indice += 2;
+          coluna += 2;
+          fechado = true;
+          espacos += "  ";
+          break;
+        }
+        if ("\r\n\u2028\u2029".includes(c)) {
+          codigoLimpo += espacos + c;
+          espacos = "";
+          linha++;
+          coluna = 0;
+          if (c === "\r" && codigo[indice + 1] === "\n") {
+            codigoLimpo += "\n";
+            indice += 2;
+            continue;
+          }
+          indice++;
+          continue;
+        }
+        espacos += " ";
+        indice++;
+        coluna++;
+      }
+
+      codigoLimpo += espacos;
+      if (!fechado) {
+        erros.push({
+          tipo: "comentario_bloco",
+          mensagem: `Comentário de bloco iniciado na linha ${linhaInicio}, coluna ${colunaInicio}, mas não finalizado.`,
+          indice: inicio,
+          linha: linhaInicio,
+          coluna: colunaInicio
+        });
+        break;
+      }
+      tokens.push({ tipo: "comentario", inicio, fim: indice, texto: codigo.slice(inicio, indice) });
+      continue;
+    }
+
+    // Strings simples com aspas duplas ou simples
+    if (caractere === '"' || caractere === "'") {
+      const aspas = caractere;
+      const linhaInicio = linha;
+      const colunaInicio = coluna;
+      const inicio = indice;
+      indice++;
+      let fechado = false;
+      let espacos = " ";
+
+      while (indice < codigo.length) {
+        const c = codigo[indice];
+        if (c === "\\") {
+          const proximoC = codigo[indice + 1];
+          if (proximoC === "\r" && codigo[indice + 2] === "\n") {
+            espacos += " ";
+            codigoLimpo += espacos + "\r\n";
+            espacos = "";
+            indice += 3;
+            linha++;
+            coluna = 0;
+            continue;
+          } else if (proximoC === "\n" || proximoC === "\r" || proximoC === "\u2028" || proximoC === "\u2029") {
+            espacos += " ";
+            codigoLimpo += espacos + proximoC;
+            espacos = "";
+            indice += 2;
+            linha++;
+            coluna = 0;
+            continue;
+          } else {
+            espacos += "  ";
+            indice += 2;
+            coluna += 2;
+            continue;
+          }
+        }
+        if ("\r\n\u2028\u2029".includes(c)) {
+          break;
+        }
+        espacos += " ";
+        indice++;
+        coluna++;
+        if (c === aspas) {
+          fechado = true;
+          break;
+        }
+      }
+
+      codigoLimpo += espacos;
+      if (!fechado) {
+        erros.push({
+          tipo: "string",
+          mensagem: `String sem fechamento em ${formatarPosicao({ linha: linhaInicio, coluna: colunaInicio })}. `
+            + `Esperado “${aspas}”. Corrija a string para continuar a análise.`,
+          indice: inicio,
+          linha: linhaInicio,
+          coluna: colunaInicio,
+          aspas
+        });
+        break;
+      }
+      tokens.push({ tipo: "string", inicio, fim: indice, texto: codigo.slice(inicio, indice) });
+      continue;
+    }
+
+    // Template literals com crase
+    if (caractere === "`") {
+      const linhaInicio = linha;
+      const colunaInicio = coluna;
+      const inicio = indice;
+      indice++;
+      codigoLimpo += " ";
+
+      let fechado = false;
+      while (indice < codigo.length) {
+        const c = codigo[indice];
+        if (c === "\\") {
+          codigoLimpo += "  ";
+          indice += 2;
+          coluna += 2;
+          continue;
+        }
+        if (c === "`") {
+          codigoLimpo += " ";
+          indice++;
+          coluna++;
+          fechado = true;
+          tokens.push({ tipo: "string", inicio, fim: indice, texto: codigo.slice(inicio, indice) });
+          break;
+        }
+        if (c === "$" && codigo[indice + 1] === "{") {
+          tokens.push({ tipo: "string", inicio, fim: indice, texto: codigo.slice(inicio, indice) });
+          codigoLimpo += "  ";
+          indice += 2;
+          coluna += 2;
+          pilhaTemplates.push({
+            profundidadeChaves: 0,
+            linhaInicio,
+            colunaInicio,
+            inicio
+          });
+          break;
+        }
+        if ("\r\n\u2028\u2029".includes(c)) {
+          codigoLimpo += c;
+          linha++;
+          coluna = 0;
+          if (c === "\r" && codigo[indice + 1] === "\n") {
+            codigoLimpo += "\n";
+            indice += 2;
+            continue;
+          }
+          indice++;
+          continue;
+        }
+        codigoLimpo += " ";
+        indice++;
+        coluna++;
+      }
+
+      if (!fechado && pilhaTemplates.length === 0) {
+        erros.push({
+          tipo: "string",
+          mensagem: `String sem fechamento em ${formatarPosicao({ linha: linhaInicio, coluna: colunaInicio })}. `
+            + `Esperado “\`”. Corrija a string para continuar a análise.`,
+          indice: inicio,
+          linha: linhaInicio,
+          coluna: colunaInicio,
+          aspas: "`"
+        });
+        break;
+      }
+      continue;
+    }
+
+    // Fechamento de interpolação } dentro de template
+    if (caractere === "}" && pilhaTemplates.length > 0) {
+      const topo = pilhaTemplates[pilhaTemplates.length - 1];
+      if (topo.profundidadeChaves === 0) {
+        pilhaTemplates.pop();
+        codigoLimpo += " ";
+        indice++;
+        const inicioTemplateTexto = indice;
+
+        let fechado = false;
+        while (indice < codigo.length) {
+          const c = codigo[indice];
+          if (c === "\\") {
+            codigoLimpo += "  ";
+            indice += 2;
+            coluna += 2;
+            continue;
+          }
+          if (c === "`") {
+            codigoLimpo += " ";
+            indice++;
+            coluna++;
+            fechado = true;
+            tokens.push({ tipo: "string", inicio: inicioTemplateTexto, fim: indice, texto: codigo.slice(inicioTemplateTexto, indice) });
+            break;
+          }
+          if (c === "$" && codigo[indice + 1] === "{") {
+            tokens.push({ tipo: "string", inicio: inicioTemplateTexto, fim: indice, texto: codigo.slice(inicioTemplateTexto, indice) });
+            codigoLimpo += "  ";
+            indice += 2;
+            coluna += 2;
+            pilhaTemplates.push(topo);
+            break;
+          }
+          if ("\r\n\u2028\u2029".includes(c)) {
+            codigoLimpo += c;
+            linha++;
+            coluna = 0;
+            if (c === "\r" && codigo[indice + 1] === "\n") {
+              codigoLimpo += "\n";
+              indice += 2;
+              continue;
+            }
+            indice++;
+            continue;
+          }
+          codigoLimpo += " ";
+          indice++;
+          coluna++;
+        }
+
+        if (!fechado && pilhaTemplates.length === 0) {
+          erros.push({
+            tipo: "string",
+            mensagem: `String sem fechamento em ${formatarPosicao({ linha: topo.linhaInicio, coluna: topo.colunaInicio })}. `
+              + `Esperado “\`”. Corrija a string para continuar a análise.`,
+            indice: topo.inicio,
+            linha: topo.linhaInicio,
+            coluna: topo.colunaInicio,
+            aspas: "`"
+          });
+          break;
+        }
+        continue;
+      } else {
+        topo.profundidadeChaves--;
+        codigoLimpo += caractere;
+        indice++;
+        continue;
+      }
+    }
+
+    if (caractere === "{" && pilhaTemplates.length > 0) {
+      pilhaTemplates[pilhaTemplates.length - 1].profundidadeChaves++;
+      codigoLimpo += caractere;
+      indice++;
+      continue;
+    }
+
+    // RegExp Literal /.../
+    if (caractere === "/" && ehInicioRegExp(codigo, indice)) {
+      let k = indice + 1;
+      let dentroClasse = false;
+      let fechado = false;
+
+      while (k < codigo.length) {
+        const c = codigo[k];
+        if ("\r\n\u2028\u2029".includes(c)) break;
+        if (c === "\\") {
+          k += 2;
+          continue;
+        }
+        if (c === "[") {
+          dentroClasse = true;
+          k++;
+          continue;
+        }
+        if (c === "]") {
+          dentroClasse = false;
+          k++;
+          continue;
+        }
+        if (c === "/" && !dentroClasse) {
+          k++;
+          fechado = true;
+          while (k < codigo.length && /[a-z]/i.test(codigo[k])) {
+            k++;
+          }
+          break;
+        }
+        k++;
+      }
+
+      if (fechado) {
+        const tam = k - indice;
+        codigoLimpo += " ".repeat(tam);
+        tokens.push({ tipo: "string", inicio: indice, fim: k, texto: codigo.slice(indice, k) });
+        coluna += tam - 1;
+        indice = k;
+        continue;
+      }
+    }
+
+    codigoLimpo += caractere;
+    indice++;
+  }
+
+  if (pilhaTemplates.length > 0 && erros.length === 0) {
+    const topo = pilhaTemplates[0];
+    erros.push({
+      tipo: "string",
+      mensagem: `String sem fechamento em ${formatarPosicao({ linha: topo.linhaInicio, coluna: topo.colunaInicio })}. `
+        + `Esperado “\`”. Corrija a string para continuar a análise.`,
+      indice: topo.inicio,
+      linha: topo.linhaInicio,
+      coluna: topo.colunaInicio,
+      aspas: "`"
+    });
+  }
+
+  return { codigoLimpo, erros, tokens };
+}
+
 function ignorarStringsEComentarios(codigo: string): string {
-  // Espaços mantêm os índices originais; quebras mantêm as linhas originais.
-  return codigo.replace(padraoTextos, trecho => trecho.replace(/[^\r\n\u2028\u2029]/g, " "));
+  return escanearCodigo(codigo).codigoLimpo;
 }
 
 function formatarPosicao(posicao: Posicao): string {
   return `linha ${posicao.linha}, coluna ${posicao.coluna}`;
 }
 
-// Cria uma cópia da linha do usuário, preservando tabs para a seta alinhar diretamente sob o caractere.
-function criarIndicadorErro(codigo: string, erro: Erro): IndicadorErro {
-  let inicioLinha = erro.indice;
-  let fimLinha = erro.indice;
+// 5. Criação do indicador de erro com cache de linhas (O(1) após primeiro acesso)
+const cacheLinhasGlobal = new Map<number, DadosLinhaCache>();
 
-  while (inicioLinha > 0 && !"\r\n\u2028\u2029".includes(codigo[inicioLinha - 1])) {
-    inicioLinha--;
-  }
+function criarIndicadorErro(
+  codigo: string,
+  erro: Erro,
+  cacheLinhas: Map<number, DadosLinhaCache> = cacheLinhasGlobal
+): IndicadorErro {
+  let dadosLinha = cacheLinhas.get(erro.linha);
+  if (!dadosLinha) {
+    let inicioLinha = erro.indice;
+    let fimLinha = erro.indice;
 
-  while (fimLinha < codigo.length && !"\r\n\u2028\u2029".includes(codigo[fimLinha])) {
-    fimLinha++;
+    while (inicioLinha > 0 && !"\r\n\u2028\u2029".includes(codigo[inicioLinha - 1])) {
+      inicioLinha--;
+    }
+
+    while (fimLinha < codigo.length && !"\r\n\u2028\u2029".includes(codigo[fimLinha])) {
+      fimLinha++;
+    }
+
+    dadosLinha = {
+      textoLinha: codigo.slice(inicioLinha, fimLinha),
+      inicioLinha
+    };
+    cacheLinhas.set(erro.linha, dadosLinha);
   }
 
   return {
-    textoLinha: codigo.slice(inicioLinha, fimLinha),
-    espacosAteErro: codigo.slice(inicioLinha, erro.indice).replace(/[^\t]/g, " ")
+    textoLinha: dadosLinha.textoLinha,
+    espacosAteErro: codigo.slice(dadosLinha.inicioLinha, erro.indice).replace(/[^\t]/g, " ")
   };
 }
 
@@ -124,7 +540,6 @@ function stringEstaFechada(texto: string): boolean {
     return false;
   }
 
-  // Uma quantidade ímpar de barras antes da aspa faz dela parte do texto.
   let barras = 0;
   for (let indice = texto.length - 2; indice >= 0 && texto[indice] === "\\"; indice--) {
     barras++;
@@ -133,24 +548,26 @@ function stringEstaFechada(texto: string): boolean {
   return barras % 2 === 0;
 }
 
-function encontrarStringIncompleta(codigo: string): StringIncompleta | undefined {
-  for (const trecho of codigo.matchAll(padraoTextos)) {
-    const texto = trecho[0];
-    const aspas = texto[0];
-
-    if (['"', "'", "`"].includes(aspas) && !stringEstaFechada(texto)) {
-      return { indice: trecho.index, aspas };
-    }
+function encontrarStringIncompleta(codigo: string): { indice: number; aspas: string } | undefined {
+  const analise = escanearCodigo(codigo);
+  const erroString = analise.erros.find(e => e.tipo === "string");
+  if (erroString && erroString.aspas) {
+    return { indice: erroString.indice, aspas: erroString.aspas };
   }
 }
 
-
-// 5. Análise com pilha: independente dos elementos da página
+// 6. Análise com pilha LIFO
 function analisarCodigo(codigo: string): Analise {
-  const stringIncompleta = encontrarStringIncompleta(codigo);
-  const codigoLimpo = ignorarStringsEComentarios(codigo);
+  cacheLinhasGlobal.clear();
+  const scan = escanearCodigo(codigo);
+  const codigoLimpo = scan.codigoLimpo;
   const pilha: DelimitadorAberto[] = [];
-  const erros: Erro[] = [];
+  const erros: Erro[] = [...scan.erros];
+
+  if (erros.length > 0) {
+    return { erros, codigoLimpo };
+  }
+
   let linha = 1;
   let coluna = 0;
 
@@ -159,26 +576,12 @@ function analisarCodigo(codigo: string): Analise {
     coluna++;
 
     if ("\r\n\u2028\u2029".includes(caractere)) {
-      // No Windows, \r\n representa uma única quebra de linha.
       if (caractere === "\r" && codigoLimpo[indice + 1] === "\n") {
         indice++;
       }
-
       linha++;
       coluna = 0;
       continue;
-    }
-
-    if (stringIncompleta && indice === stringIncompleta.indice) {
-      erros.push({
-        mensagem: `String sem fechamento em ${formatarPosicao({ linha, coluna })}. `
-          + `Esperado “${stringIncompleta.aspas}”. Corrija a string para continuar a análise.`,
-        indice,
-        linha,
-        coluna
-      });
-      // Os delimitadores seguintes podem pertencer ao texto da string incompleta.
-      return { erros, codigoLimpo };
     }
 
     if (pares[caractere]) {
@@ -201,7 +604,6 @@ function analisarCodigo(codigo: string): Analise {
         coluna
       });
     } else if (caractere !== pares[abertura.simbolo]) {
-      // Consumimos o par incompatível para não repetir a mesma abertura como outro erro.
       erros.push({
         mensagem: `“${caractere}” incompatível em ${posicao}. `
           + `Esperado “${pares[abertura.simbolo]}” para “${abertura.simbolo}” `
@@ -229,37 +631,128 @@ function analisarCodigo(codigo: string): Analise {
   };
 }
 
+// 7. Extração de Identificadores, Parâmetros e Escopos
+function extrairVinculosDestruturacao(
+  texto: string,
+  nomes: Set<string>,
+  propriedades: Set<string>,
+  escopoAtual?: DeclaracaoEscopo | null,
+  declaracoesComEscopo?: DeclaracaoEscopo[]
+): void {
+  let i = 0;
+  while (i < texto.length) {
+    while (i < texto.length && /[\s,;]/.test(texto[i])) i++;
+    if (i >= texto.length) break;
 
-// 6. Destaque no próprio campo: texto digitado nunca é interpretado como HTML
-// shortcut: reconhecimento de declarações usuais; usar um parser se precisar resolver escopos completos.
+    if (texto.slice(i, i + 3) === "...") {
+      i += 3;
+      while (i < texto.length && /\s/.test(texto[i])) i++;
+    }
+
+    if (texto[i] === "{" || texto[i] === "[") {
+      i++;
+      continue;
+    }
+    if (texto[i] === "}" || texto[i] === "]") {
+      i++;
+      continue;
+    }
+
+    const match = texto.slice(i).match(/^([\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*)/u);
+    if (!match) {
+      i++;
+      continue;
+    }
+
+    const id = match[1];
+    i += id.length;
+
+    let j = i;
+    while (j < texto.length && /\s/.test(texto[j])) j++;
+
+    if (j < texto.length && texto[j] === ":") {
+      propriedades.add(id);
+      i = j + 1;
+      continue;
+    }
+
+    if (!palavrasReservadas.has(id)) {
+      nomes.add(id);
+      propriedades.add(id);
+      if (declaracoesComEscopo) {
+        declaracoesComEscopo.push({
+          nome: id,
+          inicio: escopoAtual ? escopoAtual.inicio : 0,
+          fim: escopoAtual ? escopoAtual.fim : Infinity
+        });
+      }
+    }
+
+    if (j < texto.length && texto[j] === "=") {
+      i = j + 1;
+      let nivel = 0;
+      while (i < texto.length) {
+        const c = texto[i];
+        if ("([{".includes(c)) nivel++;
+        else if (")]}".includes(c)) {
+          if (nivel === 0) break;
+          nivel--;
+        } else if (c === "," && nivel === 0) {
+          break;
+        }
+        i++;
+      }
+    }
+  }
+}
+
 function encontrarNomesDefinidos(codigo: string, codigoLimpoPreexistente?: string): NomesDefinidos {
   const codigoLimpo = codigoLimpoPreexistente ?? ignorarStringsEComentarios(codigo);
   const nomes = new Set<string>();
   const propriedades = new Set<string>();
+  const declaracoesComEscopo: DeclaracaoEscopo[] = [];
 
-  function adicionarVinculos(texto: string): void {
-    const vinculos = texto.trim().replace(/^[{\[]|[}\]]$/g, "");
-
-    for (const parte of vinculos.split(",")) {
-      const vinculo = (parte.split("=")[0].split(":").pop() ?? "").trim();
-      const encontrado = vinculo.match(padraoInicioNome);
-      if (encontrado && !palavrasReservadas.has(encontrado[1])) {
-        nomes.add(encontrado[1]);
-      }
+  const escoposFuncao: DeclaracaoEscopo[] = [];
+  const padraoBlocosFuncao = /\b(?:function\b\s*\*?\s*[\p{ID_Start}$_]?[\p{ID_Continue}$\u200c\u200d]*\s*\([^)]*\)|\([^)]*\)\s*=>|[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*\s*=>)\s*\{/gu;
+  for (const m of codigoLimpo.matchAll(padraoBlocosFuncao)) {
+    const inicioBloco = (m.index ?? 0) + m[0].length - 1;
+    let nivel = 1;
+    let fimBloco = inicioBloco + 1;
+    while (fimBloco < codigoLimpo.length && nivel > 0) {
+      if (codigoLimpo[fimBloco] === "{") nivel++;
+      else if (codigoLimpo[fimBloco] === "}") nivel--;
+      fimBloco++;
     }
+    escoposFuncao.push({ nome: "bloco", inicio: inicioBloco, fim: fimBloco - 1 });
   }
 
-  for (const declaracao of codigoLimpo.matchAll(padraoDeclaracaoVariaveis)) {
+  function obterEscopoParaIndice(indice: number): DeclaracaoEscopo | null {
+    for (const escopo of escoposFuncao) {
+      if (indice >= escopo.inicio && indice <= escopo.fim) {
+        return escopo;
+      }
+    }
+    return null;
+  }
+
+  const padraoVar = /\b(?:const|let|var)\s+([^;\r\n]+)/g;
+  for (const match of codigoLimpo.matchAll(padraoVar)) {
+    const escopo = obterEscopoParaIndice(match.index ?? 0);
     let inicio = 0;
     let fimNome = -1;
     let nivel = 0;
-    const texto = declaracao[1];
+    const texto = match[1];
 
-    // Vírgulas dentro de arrays, objetos ou chamadas não iniciam outra variável.
     for (let indice = 0; indice <= texto.length; indice++) {
       const caractere = texto[indice];
       if (indice === texto.length || (caractere === "," && nivel === 0)) {
-        adicionarVinculos(texto.slice(inicio, fimNome < 0 ? indice : fimNome));
+        extrairVinculosDestruturacao(
+          texto.slice(inicio, fimNome < 0 ? indice : fimNome),
+          nomes,
+          propriedades,
+          escopo,
+          declaracoesComEscopo
+        );
         inicio = indice + 1;
         fimNome = -1;
       } else if (caractere === "=" && nivel === 0 && fimNome < 0) {
@@ -272,29 +765,60 @@ function encontrarNomesDefinidos(codigo: string, codigoLimpoPreexistente?: strin
     }
   }
 
-  for (const declaracao of codigoLimpo.matchAll(padraoDeclaracaoFuncaoClasse)) {
-    nomes.add(declaracao[1]);
+  const padraoFuncaoClasse = /\b(?:function\b\s*\*?|class\b)\s*([\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*)/gu;
+  for (const m of codigoLimpo.matchAll(padraoFuncaoClasse)) {
+    nomes.add(m[1]);
+    declaracoesComEscopo.push({ nome: m[1], inicio: 0, fim: Infinity });
   }
 
-  for (const funcao of codigoLimpo.matchAll(padraoParametrosFuncao)) {
-    adicionarVinculos(funcao[1] ?? funcao[2] ?? funcao[3]);
-  }
-
-  for (const metodo of codigoLimpo.matchAll(padraoMetodos)) {
-    if (!palavrasReservadas.has(metodo[1])) {
-      if (metodo[1] !== "constructor") {
-        nomes.add(metodo[1]);
-        propriedades.add(metodo[1]);
-      }
-      adicionarVinculos(metodo[2]);
+  const padraoCabecalhoFuncao = /\bfunction\b\s*\*?\s*(?:[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*)?\s*\(/gu;
+  for (const m of codigoLimpo.matchAll(padraoCabecalhoFuncao)) {
+    const inicioParen = (m.index ?? 0) + m[0].length - 1;
+    let nivel = 1;
+    let fimParen = inicioParen + 1;
+    while (fimParen < codigoLimpo.length && nivel > 0) {
+      if (codigoLimpo[fimParen] === "(") nivel++;
+      else if (codigoLimpo[fimParen] === ")") nivel--;
+      fimParen++;
+    }
+    if (nivel === 0) {
+      const listaParams = codigoLimpo.slice(inicioParen + 1, fimParen - 1);
+      const escopo = obterEscopoParaIndice(fimParen);
+      extrairVinculosDestruturacao(listaParams, nomes, propriedades, escopo, declaracoesComEscopo);
     }
   }
 
-  for (const campo of codigoLimpo.matchAll(padraoCampos)) {
-    propriedades.add(campo[1] ?? campo[2]);
+  const padraoArrow = /\(([^)]*)\)\s*=>|([\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*)\s*=>/gu;
+  for (const m of codigoLimpo.matchAll(padraoArrow)) {
+    const params = m[1] ?? m[2];
+    const escopo = obterEscopoParaIndice((m.index ?? 0) + m[0].length);
+    extrairVinculosDestruturacao(params, nomes, propriedades, escopo, declaracoesComEscopo);
   }
 
-  return { nomes, propriedades, codigoLimpo };
+  const padraoMetodos = /([\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*)\s*\(([^()]*)\)\s*\{/gu;
+  for (const m of codigoLimpo.matchAll(padraoMetodos)) {
+    if (!palavrasReservadas.has(m[1]) && m[1] !== "constructor") {
+      nomes.add(m[1]);
+      propriedades.add(m[1]);
+    }
+    extrairVinculosDestruturacao(m[2], nomes, propriedades, obterEscopoParaIndice(m.index ?? 0), declaracoesComEscopo);
+  }
+
+  const padraoCamposClasse = /(?:[{;\r\n]\s*)([\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*)\s*=/gu;
+  for (const m of codigoLimpo.matchAll(padraoCamposClasse)) {
+    if (!palavrasReservadas.has(m[1])) {
+      propriedades.add(m[1]);
+    }
+  }
+
+  const padraoCamposObjeto = /(?:[{,]\s*)([\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*)\s*(?:[:=,}]|$)/gu;
+  for (const m of codigoLimpo.matchAll(padraoCamposObjeto)) {
+    if (!palavrasReservadas.has(m[1])) {
+      propriedades.add(m[1]);
+    }
+  }
+
+  return { nomes, propriedades, declaracoesComEscopo, codigoLimpo };
 }
 
 function nomeFoiDefinido(texto: string, indice: number, definidos: NomesDefinidos): boolean {
@@ -302,19 +826,56 @@ function nomeFoiDefinido(texto: string, indice: number, definidos: NomesDefinido
   let anterior = indice - 1;
   while (anterior >= 0 && /\s/.test(codigo[anterior])) anterior--;
 
-  if (codigo[anterior] !== "." || codigo.slice(anterior - 2, anterior + 1) === "...") {
-    return definidos.nomes.has(texto) || definidos.propriedades.has(texto);
+  if (codigo[anterior] === "." && codigo.slice(anterior - 2, anterior + 1) !== "...") {
+    let fimDono = anterior - 1;
+    while (fimDono >= 0 && /[\s?]/.test(codigo[fimDono])) fimDono--;
+    let inicioDono = fimDono;
+    while (inicioDono >= 0 && /[\p{ID_Continue}$\u200c\u200d]/u.test(codigo[inicioDono])) inicioDono--;
+    const dono = codigo.slice(inicioDono + 1, fimDono + 1);
+    return definidos.propriedades.has(texto) && (definidos.nomes.has(dono) || dono === "this");
   }
 
-  // Uma função local chamada log não muda a cor do método em console.log.
-  let fimDono = anterior - 1;
-  while (fimDono >= 0 && /[\s?]/.test(codigo[fimDono])) fimDono--;
-  let inicioDono = fimDono;
-  while (inicioDono >= 0 && padraoPalavras.test(codigo[inicioDono])) inicioDono--;
-  const dono = codigo.slice(inicioDono + 1, fimDono + 1);
+  if (definidos.propriedades.has(texto)) {
+    if (definidos.declaracoesComEscopo) {
+      const declaracaoLocal = definidos.declaracoesComEscopo.find(d => d.nome === texto && d.fim !== Infinity);
+      if (declaracaoLocal && (indice < declaracaoLocal.inicio || indice > declaracaoLocal.fim)) {
+        let proximo = indice + texto.length;
+        while (proximo < codigo.length && /\s/.test(codigo[proximo])) proximo++;
+        if (codigo[proximo] === ":" || codigo[proximo] === "=" || codigo[anterior] === "{" || codigo[anterior] === ",") {
+          return true;
+        }
+        return false;
+      }
+    }
+    return true;
+  }
 
-  return definidos.propriedades.has(texto) && (definidos.nomes.has(dono) || dono === "this");
+  if (definidos.declaracoesComEscopo) {
+    const match = definidos.declaracoesComEscopo.find(
+      d => d.nome === texto && indice >= d.inicio && indice <= d.fim
+    );
+    if (match) return true;
+    if (definidos.declaracoesComEscopo.some(d => d.nome === texto)) {
+      return false;
+    }
+  }
+
+  return definidos.nomes.has(texto);
 }
+
+// 8. Destaque de Sintaxe no Editor
+const padraoDestaques = new RegExp(
+  [
+    /\/\*[\s\S]*?(?:\*\/|$)/.source,
+    /\/\/[^\r\n\u2028\u2029]*/.source,
+    /"(?:\\(?:\r\n|[\s\S])|[^"\\\r\n\u2028\u2029])*"?/.source,
+    /'(?:\\(?:\r\n|[\s\S])|[^'\\\r\n\u2028\u2029])*'?/.source,
+    /`(?:\\[\s\S]|[^`\\])*`?/.source,
+    padraoNumeros.source,
+    padraoPalavras.source
+  ].join("|"),
+  "gu"
+);
 
 function destacarCodigo(codigo: string, codigoLimpoPreexistente?: string): void {
   const fragmento = document.createDocumentFragment();
@@ -333,7 +894,7 @@ function destacarCodigo(codigo: string, codigoLimpoPreexistente?: string): void 
       classe = "booleano";
     } else if (palavrasReservadas.has(texto)) {
       classe = "palavra-reservada";
-    } else if (nomeFoiDefinido(texto, trecho.index, definidos)) {
+    } else if (nomeFoiDefinido(texto, trecho.index ?? 0, definidos)) {
       classe = "identificador";
     }
 
@@ -348,10 +909,9 @@ function destacarCodigo(codigo: string, codigoLimpoPreexistente?: string): void 
     destaque.textContent = texto;
     fragmento.append(destaque);
 
-    inicio = trecho.index + texto.length;
+    inicio = (trecho.index ?? 0) + texto.length;
   }
 
-  // A linha extra permite alinhar a rolagem até o fim, inclusive após Enter.
   fragmento.append(document.createTextNode(codigo.slice(inicio) + "\n "));
   codigoDestacado.replaceChildren(fragmento);
 }
@@ -376,8 +936,7 @@ function atualizarEstatisticas(): void {
   }
 }
 
-
-// 7. Exibição do resultado e limpeza ao editar
+// 9. Exibição Otimizada do Resultado com Fragmento e Limite de Renderização
 function limparResultado(): void {
   painelResultado.className = "resultado neutro";
   resumoResultado.textContent = "Aguardando análise";
@@ -418,12 +977,18 @@ function mostrarResultado(): void {
     ? "1 erro encontrado:"
     : `${analise.erros.length} erros encontrados:`;
 
-  for (const erro of analise.erros) {
+  const fragmento = document.createDocumentFragment();
+  const limiteMaximoVisual = 100;
+  const totalErros = analise.erros.length;
+  const errosParaRenderizar = analise.erros.slice(0, limiteMaximoVisual);
+  const cacheLinhas = new Map<number, DadosLinhaCache>();
+
+  for (const erro of errosParaRenderizar) {
     const item = document.createElement("li");
     const mensagem = document.createElement("p");
     mensagem.textContent = erro.mensagem;
 
-    const indicador = criarIndicadorErro(codigo, erro);
+    const indicador = criarIndicadorErro(codigo, erro, cacheLinhas);
     const localizacao = document.createElement("pre");
     const linha = document.createElement("code");
     const numeroLinha = String(erro.linha);
@@ -434,27 +999,33 @@ function mostrarResultado(): void {
     localizacao.setAttribute("aria-label", `Local do erro: linha ${erro.linha}, coluna ${erro.coluna}`);
     localizacao.append(linha);
     item.append(mensagem, localizacao);
-    listaErros.append(item);
+    fragmento.append(item);
   }
 
+  if (totalErros > limiteMaximoVisual) {
+    const itemMais = document.createElement("li");
+    const aviso = document.createElement("p");
+    aviso.textContent = `... e mais ${totalErros - limiteMaximoVisual} erros detectados. Corrija os primeiros erros para continuar.`;
+    itemMais.append(aviso);
+    fragmento.append(itemMais);
+  }
+
+  listaErros.append(fragmento);
   listaErros.hidden = false;
 }
 
-
-// 8. Eventos e código disponível para explicar durante a apresentação
+// 10. Eventos e Código do Algoritmo para Apresentação
 botaoAnalisar.addEventListener("click", mostrarResultado);
 campoCodigo.addEventListener("input", atualizarEditor);
 campoCodigo.addEventListener("scroll", sincronizarRolagem);
 
-// Atalho de teclado para rodar a análise: Ctrl+Enter ou Cmd+Enter
-campoCodigo.addEventListener("keydown", (evento) => {
+campoCodigo.addEventListener("keydown", evento => {
   if ((evento.ctrlKey || evento.metaKey) && evento.key === "Enter") {
     evento.preventDefault();
     mostrarResultado();
   }
 });
 
-// Ações rápidas da barra de ferramentas do editor
 const botaoExemploSucesso = document.getElementById("botao-exemplo-sucesso");
 const botaoExemploErro = document.getElementById("botao-exemplo-erro");
 const botaoLimpar = document.getElementById("botao-limpar");
@@ -535,7 +1106,7 @@ function renderizarAlgoritmoDestacado(codigoTexto: string): void {
       }
 
       if (classe) {
-        if (trecho.index !== undefined && trecho.index > inicio) {
+        if ((trecho.index ?? 0) > inicio) {
           conteudoEl.append(document.createTextNode(linhaTexto.slice(inicio, trecho.index)));
         }
         const span = document.createElement("span");
@@ -576,34 +1147,21 @@ atualizarEditor();
 editorCodigo.classList.add("com-destaque");
 
 textoCodigoAlgoritmo = `// ============================================================================
-// 1. MAPEAMENTO DE DELIMITADORES & REGEX DE TRATAMENTO LÉXICO
+// 1. MAPEAMENTO DE DELIMITADORES & DISCRIMINAÇÃO LÉXICA
 // ============================================================================
 const pares = ${JSON.stringify(pares, null, 2)};
 
-// Expressão regular compilada para mascarar strings e comentários.
-// Preserva espaços e quebras para que as posições (linha, coluna) originais fiquem intactas.
-const padraoTextos = ${padraoTextos};
+// Diferencia operador de divisão / de expressões regulares literais /.../flags
+${ehInicioRegExp.toString()}
 
 // ============================================================================
-// 2. FUNÇÕES AUXILIARES DE POSIÇÃO E ERROS
+// 2. SCANNER LÉXICO (STRINGS, REGEX, COMENTÁRIOS E TEMPLATE INTERPOLATIONS)
 // ============================================================================
-${ignorarStringsEComentarios.toString()}
-
-${formatarPosicao.toString()}
-
-${criarIndicadorErro.toString()}
+${escanearCodigo.toString()}
 
 // ============================================================================
-// 3. TRATAMENTO DE STRINGS INCOMPLETAS (EVITA ERRO EM CASCATA)
-// ============================================================================
-${stringEstaFechada.toString()}
-
-${encontrarStringIncompleta.toString()}
-
-// ============================================================================
-// 4. ANÁLISE SINTÁTICA COM ESTRUTURA DE DADOS PILHA (LIFO)
-// Complexidade de Tempo: O(n) • Varredura linear em única passagem
-// Complexidade de Espaço: O(n) no pior caso
+// 3. ANÁLISE SINTÁTICA COM ESTRUTURA DE DADOS PILHA (LIFO)
+// Complexidade de Tempo: O(n) linear • Espaço: O(n)
 // ============================================================================
 ${analisarCodigo.toString()}`;
 
