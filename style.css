@@ -157,44 +157,13 @@ h1 {
 .editor-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border-subtle);
   padding: 8px 14px;
   user-select: none;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.janela-controles {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ponto-janela {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.ponto-janela.fechar { background: #ff5f56; }
-.ponto-janela.minimizar { background: #ffbd2e; }
-.ponto-janela.expandir { background: #27c93f; }
-
-.arquivo-aba {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--bg-editor);
-  color: var(--text-main);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-code);
-  font-size: 0.8rem;
-  margin-left: 8px;
-  border: 1px solid var(--border-subtle);
 }
 
 .editor-acoes-rapidas {
@@ -283,41 +252,6 @@ textarea::placeholder {
 .editor-codigo.com-destaque textarea::selection {
   color: transparent;
   background: rgba(56, 139, 253, 0.35);
-}
-
-/* Barra de Status do Editor */
-.editor-statusbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--bg-card);
-  border-top: 1px solid var(--border-subtle);
-  padding: 6px 14px;
-  font-size: 0.76rem;
-  color: var(--text-muted);
-  font-family: var(--font-code);
-}
-
-.status-left,
-.status-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.divisor {
-  color: var(--border-subtle);
-}
-
-kbd {
-  display: inline-block;
-  padding: 1px 4px;
-  font-family: inherit;
-  font-size: 0.72rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 3px;
-  color: var(--text-main);
 }
 
 /* 6. Workspace em 2 Colunas no Desktop */
@@ -572,41 +506,6 @@ kbd {
   box-shadow: var(--shadow-md);
 }
 
-.visualizador-barra-topo {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border-subtle);
-  padding: 10px 18px;
-  user-select: none;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.visualizador-badges {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.arquivo-nome {
-  color: var(--text-main);
-  font-weight: 500;
-}
-
-.badge-tag {
-  color: var(--accent-blue);
-  background: rgba(56, 139, 253, 0.12);
-  border: 1px solid rgba(56, 139, 253, 0.3);
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 0.76rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
 .bloco-codigo-aberto {
   max-width: 100%;
   min-width: 0;
@@ -669,21 +568,6 @@ kbd {
 .comentario {
   color: #9ca3af;
   font-style: italic;
-}
-
-.visualizador-statusbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--bg-card);
-  border-top: 1px solid var(--border-subtle);
-  padding: 8px 18px;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  font-family: var(--font-code);
-  user-select: none;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 /* Grid Teórico Expandido (4 Cards no Desktop) */
@@ -913,12 +797,6 @@ pre:focus-visible {
   .editor-acoes-rapidas {
     width: 100%;
     justify-content: flex-start;
-  }
-  
-  .editor-statusbar {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
   }
 
   .teoria-grid-expandida {

@@ -27,19 +27,6 @@
           <!-- Janela do Editor de Código (IDE Frame) -->
           <section class="editor-card">
             <div class="editor-header">
-              <div class="janela-controles" aria-hidden="true">
-                <span class="ponto-janela fechar"></span>
-                <span class="ponto-janela minimizar"></span>
-                <span class="ponto-janela expandir"></span>
-                <span class="arquivo-aba">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                  </svg>
-                  codigo.js
-                </span>
-              </div>
-
               <div class="editor-acoes-rapidas">
                 <button id="botao-exemplo-sucesso" type="button" class="btn-subtle" title="Carregar exemplo de código sem erros">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -65,19 +52,6 @@
               <pre id="camada-destaque" class="camada-destaque" aria-hidden="true"><code id="codigo-destacado"></code></pre>
               <textarea id="codigo" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off"
                 placeholder="// Escreva ou cole seu código JavaScript aqui...&#10;function exemplo() {&#10;  return [1, 2, 3];&#10;}"></textarea>
-            </div>
-
-            <div class="editor-statusbar">
-              <div class="status-left">
-                <span id="contador-linhas">1 linha</span>
-                <span class="divisor">•</span>
-                <span id="contador-caracteres">0 caracteres</span>
-              </div>
-              <div class="status-right">
-                <span class="atalho-dica">Atalho: <kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
-                <span class="divisor">•</span>
-                <span>JavaScript (UTF-16)</span>
-              </div>
             </div>
           </section>
 
@@ -129,38 +103,7 @@
         </div>
 
         <div class="visualizador-codigo">
-          <div class="visualizador-barra-topo">
-            <div class="janela-controles" aria-hidden="true">
-              <span class="ponto-janela fechar"></span>
-              <span class="ponto-janela minimizar"></span>
-              <span class="ponto-janela expandir"></span>
-              <span class="arquivo-aba">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                  <polyline points="14 2 14 8 20 8"></polyline>
-                </svg>
-                analisador-sintatico.js
-              </span>
-            </div>
-            <div class="visualizador-badges">
-              <span class="badge-tag">JavaScript (ES6+)</span>
-              <span class="badge-tag">Pilha LIFO</span>
-              <span class="badge-tag">Tempo O(n)</span>
-            </div>
-          </div>
           <pre tabindex="0" class="bloco-codigo-aberto" aria-label="Código do analisador"><code id="codigo-analise"></code></pre>
-          <div class="visualizador-statusbar">
-            <div class="status-left">
-              <span>analisador-sintatico.js</span>
-              <span class="divisor">•</span>
-              <span>Estrutura: Array Stack (LIFO)</span>
-            </div>
-            <div class="status-right">
-              <span>Complexidade: O(n) Tempo • O(n) Espaço</span>
-              <span class="divisor">•</span>
-              <span>100% Offline</span>
-            </div>
-          </div>
         </div>
       </section>
 
