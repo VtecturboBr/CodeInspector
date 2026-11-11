@@ -453,6 +453,51 @@ const botaoExemploErro = document.getElementById("botao-exemplo-erro");
 const botaoLimpar = document.getElementById("botao-limpar");
 const botaoCopiar = document.getElementById("botao-copiar");
 const botaoCopiarAlgoritmo = document.getElementById("botao-copiar-algoritmo");
+const secaoAlgoritmo = document.getElementById("secao-algoritmo");
+const visualizadorAlgoritmo = document.getElementById("visualizador-algoritmo");
+const botaoMinimizarAlgoritmo = document.getElementById("botao-minimizar-algoritmo");
+const textoMinimizarAlgoritmo = document.getElementById("texto-minimizar-algoritmo");
+const pontoMinimizarAlgoritmo = document.getElementById("ponto-minimizar-algoritmo");
+
+function alternarMinimizarAlgoritmo(minimizar?: boolean): void {
+  if (!secaoAlgoritmo || !visualizadorAlgoritmo) {
+    return;
+  }
+  const deveMinimizar = typeof minimizar === "boolean"
+    ? minimizar
+    : !secaoAlgoritmo.classList.contains("minimizado");
+
+  secaoAlgoritmo.classList.toggle("minimizado", deveMinimizar);
+  visualizadorAlgoritmo.hidden = deveMinimizar;
+
+  if (botaoMinimizarAlgoritmo) {
+    botaoMinimizarAlgoritmo.setAttribute("aria-expanded", String(!deveMinimizar));
+    botaoMinimizarAlgoritmo.title = deveMinimizar
+      ? "Expandir código do algoritmo"
+      : "Minimizar código do algoritmo";
+
+    const icone = botaoMinimizarAlgoritmo.querySelector(".icone-toggle");
+    if (icone) {
+      icone.innerHTML = deveMinimizar
+        ? '<polyline points="6 9 12 15 18 9"></polyline>'
+        : '<polyline points="18 15 12 9 6 15"></polyline>';
+    }
+  }
+
+  if (textoMinimizarAlgoritmo) {
+    textoMinimizarAlgoritmo.textContent = deveMinimizar ? "Expandir" : "Minimizar";
+  }
+}
+
+botaoMinimizarAlgoritmo?.addEventListener("click", () => alternarMinimizarAlgoritmo());
+pontoMinimizarAlgoritmo?.addEventListener("click", () => alternarMinimizarAlgoritmo());
+pontoMinimizarAlgoritmo?.addEventListener("keydown", (evento) => {
+  const evt = evento as KeyboardEvent;
+  if (evt.key === "Enter" || evt.key === " ") {
+    evt.preventDefault();
+    alternarMinimizarAlgoritmo();
+  }
+});
 
 botaoExemploSucesso?.addEventListener("click", () => {
     campoCodigo.value = `// Código JavaScript válido para apresentação\nfunction calcularDesconto(valor, taxa) {\n  const valido = true;\n  if (valor > 100 && valido) {\n    return valor * (1 - taxa);\n  }\n  return valor;\n}\n\nconst total = calcularDesconto(250, 0.15);\nconsole.log("Total final:", total);`;

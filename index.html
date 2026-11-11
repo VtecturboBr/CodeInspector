@@ -107,64 +107,7 @@
         </div>
       </div>
 
-      <!-- ÁREA DEDICADA 1: Código do Algoritmo com Pilha -->
-      <section class="secao-dedicada" id="secao-algoritmo">
-        <div class="secao-cabecalho">
-          <div class="secao-titulo-row">
-            <div class="secao-icone">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="16 18 22 12 16 6"></polyline>
-                <polyline points="8 6 2 12 8 18"></polyline>
-              </svg>
-            </div>
-            <div>
-              <h2>Código do Algoritmo com Pilha</h2>
-              <p class="secao-descricao">Implementação em JavaScript do analisador sintático de delimitadores e cálculo de posições em $O(n)$.</p>
-            </div>
-          </div>
-          <button id="botao-copiar-algoritmo" type="button" class="btn-subtle" title="Copiar código do algoritmo">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            Copiar Algoritmo
-          </button>
-        </div>
-
-        <div class="visualizador-codigo">
-          <div class="visualizador-barra-topo">
-            <div class="janela-controles" aria-hidden="true">
-              <span class="ponto-janela fechar"></span>
-              <span class="ponto-janela minimizar"></span>
-              <span class="ponto-janela expandir"></span>
-              <span class="arquivo-aba">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                  <polyline points="14 2 14 8 20 8"></polyline>
-                </svg>
-                analisador-sintatico.js
-              </span>
-            </div>
-            <div class="visualizador-badges">
-              <span class="badge-tag">JavaScript (ES6+)</span>
-              <span class="badge-tag">Pilha LIFO</span>
-              <span class="badge-tag">Tempo O(n)</span>
-            </div>
-          </div>
-          <pre tabindex="0" class="bloco-codigo-aberto" aria-label="Código do analisador"><code id="codigo-analise"></code></pre>
-          <div class="visualizador-statusbar">
-            <div class="status-left">
-              <span>analisador-sintatico.js</span>
-              <span class="divisor">•</span>
-              <span>Estrutura: Array Stack (LIFO)</span>
-            </div>
-            <div class="status-right">
-              <span>Complexidade: O(n) Tempo • O(n) Espaço</span>
-              <span class="divisor">•</span>
-              <span>100% Offline</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ÁREA DEDICADA 2: Fundamentos Teóricos da Pilha -->
+      <!-- ÁREA DEDICADA 1: Fundamentos Teóricos da Pilha -->
       <section class="secao-dedicada" id="secao-teoria">
         <div class="secao-cabecalho">
           <div class="secao-titulo-row">
@@ -255,6 +198,71 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ÁREA DEDICADA 2: Código do Algoritmo com Pilha -->
+      <section class="secao-dedicada" id="secao-algoritmo">
+        <div class="secao-cabecalho">
+          <div class="secao-titulo-row">
+            <div class="secao-icone">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="16 18 22 12 16 6"></polyline>
+                <polyline points="8 6 2 12 8 18"></polyline>
+              </svg>
+            </div>
+            <div>
+              <h2>Código do Algoritmo com Pilha</h2>
+              <p class="secao-descricao">Implementação em JavaScript do analisador sintático de delimitadores e cálculo de posições em $O(n)$.</p>
+            </div>
+          </div>
+          <div class="secao-acoes">
+            <button id="botao-minimizar-algoritmo" type="button" class="btn-subtle" title="Minimizar código do algoritmo" aria-expanded="true" aria-controls="visualizador-algoritmo">
+              <svg class="icone-toggle" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="18 15 12 9 6 15"></polyline>
+              </svg>
+              <span id="texto-minimizar-algoritmo">Minimizar</span>
+            </button>
+            <button id="botao-copiar-algoritmo" type="button" class="btn-subtle" title="Copiar código do algoritmo">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              Copiar Algoritmo
+            </button>
+          </div>
+        </div>
+
+        <div class="visualizador-codigo" id="visualizador-algoritmo">
+          <div class="visualizador-barra-topo">
+            <div class="janela-controles">
+              <span class="ponto-janela fechar" aria-hidden="true"></span>
+              <span class="ponto-janela minimizar" id="ponto-minimizar-algoritmo" role="button" tabindex="0" title="Minimizar / Expandir código" aria-label="Minimizar código"></span>
+              <span class="ponto-janela expandir" aria-hidden="true"></span>
+              <span class="arquivo-aba">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                </svg>
+                analisador-sintatico.js
+              </span>
+            </div>
+            <div class="visualizador-badges">
+              <span class="badge-tag">JavaScript (ES6+)</span>
+              <span class="badge-tag">Pilha LIFO</span>
+              <span class="badge-tag">Tempo O(n)</span>
+            </div>
+          </div>
+          <pre tabindex="0" class="bloco-codigo-aberto" aria-label="Código do analisador"><code id="codigo-analise"></code></pre>
+          <div class="visualizador-statusbar">
+            <div class="status-left">
+              <span>analisador-sintatico.js</span>
+              <span class="divisor">•</span>
+              <span>Estrutura: Array Stack (LIFO)</span>
+            </div>
+            <div class="status-right">
+              <span>Complexidade: O(n) Tempo • O(n) Espaço</span>
+              <span class="divisor">•</span>
+              <span>100% Offline</span>
+            </div>
           </div>
         </div>
       </section>
